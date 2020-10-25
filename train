@@ -1,0 +1,91 @@
+    def run(self):
+        # 设置为训练模块
+        self.image_model.train()
+        self.question_model.train()
+        self.attention.train()
+        
+        loader = self.train_loader
+                
+        start_epoch = self.epoch
+        prev_acc = 0
+        
+        print("Start/Continue training from epoch {}".format(start_epoch))
+        for epoch in range(0, self.num_epochs):
+            running_loss, running_acc, num_updates = 0.0, 0.0, 0.0
+            
+            counter = 0
+            
+            for i, q, s, a in loader:                
+                if (self.device == 'cuda'):
+                    i, q, s, a = i.cuda(), q.cuda(), s.cuda(), a.cuda()
+                        
+                i, q, s, a = Variable(i), Variable(q), Variable(s), Variable(a)
+                # 将梯度归零                
+                self.optimizer.zero_grad()
+                        
+                # forward prop
+                #使用***提取图像向量
+                image_embed = self.image_model(i)
+                #问题空间向量
+                question_embed = self.question_model(q.long(), s.long())
+                #使用堆叠式注意力网络模型得到结果
+                output = self.attention(image_embed, question_embed)
+                _, y_pred = torch.max(output, 1)
+                                                
+                try:
+                    # calculate loss
+                    loss = self.criterion(output, a.long().squeeze(dim=1))
+                except RuntimeError as e:
+                    if 'out of memory' in str(e):
+                        if hasattr(torch.cuda, 'emtpy_cache'):
+                            torch.cuda.empty_cache()
+                    else:
+                        raise e
+                
+                # backprop
+                loss.backward()
+                self.optimizer.step()
+                
+                with torch.no_grad():
+                    running_loss += loss.item()
+                    running_acc += torch.sum((y_pred == a.long()).data)
+                    
+                num_updates += 1
+                
+                print("Epoch: {}, Batch: {}, Loss = {}, Acc = {}".format(epoch, counter, 
+                                                              (float(running_loss) / float(num_updates * self.batch_size)),
+                                                              (float(running_acc) / float(num_updates * self.batch_size))))
+                
+                torch.cuda.empty_cache()
+                
+                if (counter % 50 == 0):
+                    acc = float(running_acc) / float(num_updates * self.batch_size)
+                    self.history.append(epoch)
+                    self.train_loss.append(float(running_loss) / float(num_updates * self.batch_size))
+                    self.train_acc.append(acc)
+                    
+                    # early stopping code, stop when validation accuracy drops
+                    if (self.early_stopping):
+                        val_acc = self.evaluate()
+                        
+                        if prev_acc > val_acc:
+                            return 0
+                        else:
+                            prev_acc = val_acc
+                        
+                    self.save()
+                
+                counter += 1
+            
+            loss = (float(running_loss) / float(self.total_ex))
+            acc = (float(running_acc) / float(self.total_ex))
+            
+            print("Done with Epoch {}. Loss={}, Acc={}".format(epoch, loss, acc))
+            
+            self.history.append(epoch)
+            self.train_loss.append(loss)
+            self.train_acc.append(acc)
+            
+            self.save()
+        
+        print("Finish training for {} epochs".format(self.num_epochs)) 
