@@ -1,0 +1,37 @@
+#长短期记忆网络
+class LSTM(nn.Module): 
+    def __init__(self, vocab_size, embedding_dim, batch_size, hidden_dim, num_layers=1):
+        super(LSTM,self).__init__()
+        self.vocab_size = vocab_size
+        self.batch_size = batch_size
+        self.hidden_dim = hidden_dim
+        self.embedding_dim = embedding_dim
+
+        # 存放词典的向量的模块  vocabsize为词典的尺寸，embeddingdim表示嵌入向量的维度
+        self.embed = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+        nn.init.xavier_uniform_(self.embed.weight)
+
+        # input_size 输入数据的特征维数，通常就是embedding_dim(词向量的维度)
+        # hidden_size　LSTM中隐藏层的维度
+        # num_layers　循环神经网络的层数
+        self.lstm = nn.LSTM(input_size=embedding_dim, hidden_size=hidden_dim, 
+                            num_layers=num_layers)
+        # init LSTM
+        self.init_lstm(self.lstm.weight_ih_l0)
+        self.init_lstm(self.lstm.weight_hh_l0)
+        self.lstm.bias_ih_l0.data.zero_()
+        self.lstm.bias_hh_l0.data.zero_()
+        
+    def init_lstm(self, weight):
+        # init LSTM in chunks of 4 cells
+        
+        for w in weight.chunk(4, 0):  # 将weight在0轴上分成4块，为四个门设置权重
+            nn.init.xavier_uniform_(w)
+    
+    def forward(self, q_ind, seq_length):
+        #200*22*1000 22：最长的问题
+        embedding = self.embed(q_ind) # 生成问题向量
+        embedding = nn.utils.rnn.pack_padded_sequence(embedding, seq_length, batch_first=True) # 压紧batch
+        _, h = self.lstm(embedding)
+        #batch*hidden dim
+        return h[0][0] # return final hidden state of LSTM
