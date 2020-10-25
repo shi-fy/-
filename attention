@@ -1,0 +1,70 @@
+# 堆叠式注意力网络
+class AttentionNet(nn.Module):
+    def __init__(self, num_classes, batch_size, input_features=1024, output_features=512):
+        # Vi => 200*49*1024
+        # Vq => 200*1024
+        # Wi,a Wq,a => 512*1024 k=512
+        # Wp => 1*512
+
+        super(AttentionNet,self).__init__()
+        self.input_features = input_features
+        self.output_features = output_features
+        self.num_classes = num_classes
+        self.batch_size = batch_size
+
+        # 200*49*512
+        self.image1 = nn.Linear(input_features, output_features, bias=False)
+        # 200*1*512
+        self.question1 = nn.Linear(input_features, output_features)
+        self.attention1 = nn.Linear(output_features, 1)
+        nn.init.xavier_uniform_(self.image1.weight)
+        nn.init.xavier_uniform_(self.question1.weight)
+        nn.init.xavier_uniform_(self.attention1.weight)
+        
+        self.image2 = nn.Linear(input_features, output_features, bias=False)
+        self.question2 = nn.Linear(input_features, output_features)
+        self.attention2 = nn.Linear(output_features, 1)
+        nn.init.xavier_uniform_(self.image2.weight)
+        nn.init.xavier_uniform_(self.question2.weight)
+        nn.init.xavier_uniform_(self.attention2.weight)
+        
+        self.answer_dist = nn.Linear(input_features, self.num_classes)
+        nn.init.xavier_uniform_(self.answer_dist.weight)
+                
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax(dim=1)
+        # 神经元有50%的机会失活，不参与训练，防止过拟合
+        self.dropout = nn.Dropout(0.5)
+
+    # 多层注意力网络，生成查询向量并进行优化
+    def forward(self, image, question):
+        # 参数为:
+        # image_vec = batch*49*1024 使用vgg提取的图像向量
+        # question_vec = batchx1024 提取的问题向量
+
+        # 通过第一个注意力层得到优化查询u_1
+        # batch*49*512
+        irep_1 = self.image1(image)
+        # batch*1*512
+        qrep_1 = self.question1(question).unsqueeze(dim=1)
+        # batch*49*512
+        ha_1 = self.tanh(irep_1 + qrep_1)
+        ha_1 = self.dropout(ha_1)
+        # self.attention1(ha_1) =》  batch*49*1
+        # batch*49*1 问题在每个图像区域的关注度
+        pi_1 = self.softmax(self.attention1(ha_1))
+        # batch*1024 将关注度在每个区域上查询
+        u_1 = (pi_1 * image).sum(dim=1) + question
+
+        # 第二个注意层得到更加准确的优化查询u_2
+        irep_2 = self.image2(image)
+        qrep_2 = self.question2(u_1).unsqueeze(dim=1)
+        ha_2 = self.tanh(irep_2 + qrep_2)
+        ha_2 = self.dropout(ha_2)
+        pi_2 = self.softmax(self.attention2(ha_2))
+        u_2 = (pi_2 * image).sum(dim=1) + u_1
+
+        # batch*1000
+        w_u = self.answer_dist(self.dropout(u_2))
+
+        return w_u
