@@ -22,7 +22,7 @@ class CoattentionNet(nn.Module):
         self.W_w = nn.Linear(embed_dim, embed_dim) # 512 * 512
         self.W_p = nn.Linear(embed_dim*2, embed_dim) # 1024 * 512
         self.W_s = nn.Linear(embed_dim*2, embed_dim) # 1024 * 512
-
+        # 512 =》 1000
         self.fc = nn.Linear(embed_dim, num_classes)
 
     def forward(self, image, question):                    # Image: B x 512 x 196
