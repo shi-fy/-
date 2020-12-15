@@ -1,0 +1,28 @@
+
+class ParallelCoAttention(nn.Module):
+    def __init__(self,embed_dim=1024,k=30):
+        super(ParallelCoAttention, self).__init__()
+        
+        # 参数矩阵，维度应根据输入的特征向量的维度来设置
+        self.W_b = nn.Parameter(torch.randn(embed_dim,embed_dim)) # 1024 * 1024
+        self.W_v = nn.Parameter(torch.randn(k,embed_dim)) # k * 1024
+        self.W_q = nn.Parameter(torch.randn(k,embed_dim)) # k * 1024
+        self.W_hv = nn.Parameter(torch.randn(k,1)) # k * 1
+
+    # 输入为提取好的图像和问题特征向量，输出为生成的注意力
+    def forward(self, V, Q):
+    # V: B*36*1024
+    # Q：B*1*1024
+        V = V.premute(0,2,1)
+        C = torch.matmul(Q, torch.matmul(self.W_b, V))
+        H_v = self.tanh(torch.matmul(self.W_v, V) + torch.matmul(torch.matmul(self.W_q, Q.permute(0, 2, 1)), C))
+        logits = fn.softmax(torch.matmul(torch.t(self.w_hv), H_v), dim=2).premute(0,2,1)
+        # B*36*1
+        return  logits
+        
+        
+# 模型初始化：
+attention = ParallelCoAttention()
+
+# 模型调用：
+att = atention(V,Q)
