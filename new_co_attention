@@ -8,16 +8,24 @@ class ParallelCoAttention(nn.Module):
         self.W_v = nn.Parameter(torch.randn(k,embed_dim)) # k * 1024
         self.W_q = nn.Parameter(torch.randn(k,embed_dim)) # k * 1024
         self.W_hv = nn.Parameter(torch.randn(k,1)) # k * 1
-
+        self.W_s = nn.Linear(embed_dim, embed_dim)
+        nn.init.xavier_uniform_(self.W_s.weight)
+        self.fc = nn.Linear(embed_dim,1)
+        nn.init.xavier_uniform_(self.fc.weight)
+        self.tanh = nn.Tanh()
     # 输入为提取好的图像和问题特征向量，输出为生成的注意力
     def forward(self, V, Q):
     # V: B*36*1024
     # Q：B*1*1024
-        V = V.premute(0,2,1)
-        C = torch.matmul(Q, torch.matmul(self.W_b, V))
-        H_v = self.tanh(torch.matmul(self.W_v, V) + torch.matmul(torch.matmul(self.W_q, Q.permute(0, 2, 1)), C))
-        logits = fn.softmax(torch.matmul(torch.t(self.w_hv), H_v), dim=2).premute(0,2,1)
-        # B*36*1
+        C = torch.matmul(Q, torch.matmul(self.W_b, V.premute(0,2,1)))
+        H_v = self.tanh(torch.matmul(self.W_v, V.premute(0,2,1)) + torch.matmul(torch.matmul(self.W_q, Q.permute(0, 2, 1)), C))
+        H_q = self.tanh(torch.matmul(self.W_q, Q.permute(0,2,1)) + torch.matmul(torch.matmul(self.W_v, V.premute(0,2,1)), C.permute(0, 2, 1)))
+        a_v = fn.softmax(torch.matmul(torch.t(self.w_hv), H_v), dim=2).premute(0,2,1) # B*36*1
+        a_q = fn.softmax(torch.matmul(torch.t(self.w_hq), H_q), dim=2).premute(0,2,1) # B*1*1
+        v_sent = a_v * V # B*36*1024
+        q_sent = a_q * Q # B*1*1024
+        h_s = self.tanh(self.W_s(v_sent + q_sent)) # B*36*1024
+        logits = self.fc(h_s) # B*36*1
         return  logits
         
         
