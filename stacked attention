@@ -1,11 +1,8 @@
 # 堆叠式注意力网络
 class AttentionNet(nn.Module):
     def __init__(self, num_classes, batch_size, input_features=1024, output_features=512):
-        # Vi => 200*49*1024
-        # Vq => 200*1024
-        # Wi,a Wq,a => 512*1024 k=512
-        # Wp => 1*512
-
+      
+       
         super(AttentionNet,self).__init__()
         self.input_features = input_features
         self.output_features = output_features
@@ -68,3 +65,11 @@ class AttentionNet(nn.Module):
         w_u = self.answer_dist(self.dropout(u_2))
 
         return w_u
+        
+        
+        
+# 模型初始化：num_classes:进行分类的类数
+att = StackedAttention(num_classes, batch_size, input_features=1024, output_features=512)
+
+# 调用：参数为提取的问题及图像特征
+attention = att(image,question)
