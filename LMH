@@ -1,0 +1,89 @@
+
+def convert_sigmoid_logits_to_binary_logprobs(logits):
+    """computes log(sigmoid(logits)), log(1-sigmoid(logits))"""
+    log_prob = -F.softplus(-logits)
+    log_one_minus_prob = -logits + log_prob
+    return log_prob, log_one_minus_prob
+
+
+def elementwise_logsumexp(a, b):
+    """computes log(exp(x) + exp(b))"""
+    return torch.max(a, b) + torch.log1p(torch.exp(-torch.abs(a - b)))
+
+
+def renormalize_binary_logits(a, b):
+    """Normalize so exp(a) + exp(b) == 1"""
+    norm = elementwise_logsumexp(a, b)
+    return a - norm, b - norm
+    
+class LearnedMixin(nn.Module):
+    def __init__(self, w, smooth=True, smooth_init=-1, constant_smooth=0.0):
+        """
+        :param w: Weight of the entropy penalty
+        :param smooth: Add a learned sigmoid(a) factor to the bias to smooth it
+        :param smooth_init: How to initialize `a`
+        :param constant_smooth: Constant to add to the bias to smooth it
+        """
+        super(LearnedMixin, self).__init__()
+        self.w = w
+        # self.w=0
+        self.smooth_init = smooth_init
+        self.constant_smooth = constant_smooth
+        self.bias_lin = torch.nn.Linear(1024, 1)
+        self.smooth = smooth
+        if self.smooth:
+            self.smooth_param = torch.nn.Parameter(
+              torch.from_numpy(np.full((1,), smooth_init, dtype=np.float32)))
+        else:
+            self.smooth_param = None
+
+    def forward(self, hidden, logits, bias, labels):
+        factor = self.bias_lin.forward(hidden)  # [batch, 1]
+        # g(xi)
+        factor = F.softplus(factor)
+
+        bias = torch.stack([bias, 1 - bias], 2)  # [batch, n_answers, 2]
+
+        # Smooth
+        bias += self.constant_smooth
+        if self.smooth:
+            soften_factor = F.sigmoid(self.smooth_param)
+            bias = bias + soften_factor.unsqueeze(1)
+        # log(bi)
+        bias = torch.log(bias)  # Convert to logspace
+
+        # Scale by the factor
+        # [batch, n_answers, 2] * [batch, 1, 1] -> [batch, n_answers, 2]
+        # g(xi)log(bi)
+        bias = bias * factor.unsqueeze(1)
+
+        log_prob, log_one_minus_prob = convert_sigmoid_logits_to_binary_logprobs(logits)
+        # [batch,2274,2]
+        log_probs = torch.stack([log_prob, log_one_minus_prob], 2)
+
+        # Add the bias in
+        # g(xi)log(bi) + log(pi)
+        logits = bias + log_probs
+
+        # Renormalize to get log probabilities
+        # softmax
+        log_prob, log_one_minus_prob = renormalize_binary_logits(logits[:, :, 0], logits[:, :, 1])
+
+        # Compute loss
+        loss = -(log_prob * labels + (1 - labels) * log_one_minus_prob).sum(1).mean(0)
+
+        # Re-normalized version of the bias
+        # 重新规范化版本的偏差
+        # softmax(g(xi)log(bi))
+        bias_norm = elementwise_logsumexp(bias[:, :, 0], bias[:, :, 1])
+        bias_logprob = bias - bias_norm.unsqueeze(2)
+
+        # Compute and add the entropy penalty
+        entropy = -(torch.exp(bias_logprob) * bias_logprob).sum(2).mean()
+        return loss + self.w * entropy
+        
+        # 初始化LMH
+        lmh = LearnedMixin(0)
+        # 调用
+        loss = self.lmh(joint_repr, logits, bias, labels)
+        
